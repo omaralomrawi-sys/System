@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>مقارنة ملفات Excel</title>
+<script src="lib/xlsx.full.min.js"></script>
+<script>window.XLSX || document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>')</script>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #fff; --text: #1f2937; --muted: #6b7280; --border: #e5e7eb;
+    --primary: #2563eb; --primary-dark: #1d4ed8;
+    --ok: #16a34a; --ok-bg: #dcfce7;
+    --warn: #d97706; --warn-bg: #fef3c7;
+    --bad: #dc2626; --bad-bg: #fee2e2;
+    --info: #7c3aed; --info-bg: #ede9fe;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--primary); color: #fff; padding: 18px 24px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; opacity: .85; font-size: 14px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+  .files { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .files { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+  .badge-num { background: var(--primary); color: #fff; border-radius: 50%; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input[type=text], select { width: 100%; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 15px; font-family: inherit; background: #fff; }
+  input[type=text]:focus, select:focus { outline: 2px solid #bfdbfe; border-color: var(--primary); }
+  .file-btn { display: flex; align-items: center; justify-content: center; gap: 8px; border: 2px dashed #93c5fd; background: #eff6ff; color: var(--primary-dark); padding: 14px; border-radius: 10px; cursor: pointer; font-weight: 600; margin-top: 12px; }
+  .file-btn:hover { background: #dbeafe; }
+  .file-btn input { display: none; }
+  .file-info { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+  .file-info b { color: var(--ok); }
+  .cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .hidden { display: none !important; }
+  .options { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
+  .options label { display: inline-flex; align-items: center; gap: 6px; margin: 0; color: var(--text); font-size: 14px; cursor: pointer; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button { font-family: inherit; font-size: 15px; border: none; border-radius: 8px; padding: 10px 18px; cursor: pointer; font-weight: 600; }
+  .btn-primary { background: var(--primary); color: #fff; font-size: 17px; padding: 12px 40px; }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+  .btn-light { background: #fff; border: 1px solid var(--border); color: var(--text); }
+  .btn-light:hover { background: #f3f4f6; }
+  .btn-sm { padding: 6px 12px; font-size: 13px; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }
+  .stat { border-radius: 10px; padding: 14px; cursor: pointer; border: 2px solid transparent; }
+  .stat.active { border-color: currentColor; }
+  .stat .n { font-size: 28px; font-weight: 700; }
+  .stat .t { font-size: 13px; margin-top: 4px; }
+  .s-ok { background: var(--ok-bg); color: var(--ok); }
+  .s-warn { background: var(--warn-bg); color: var(--warn); }
+  .s-bad { background: var(--bad-bg); color: var(--bad); }
+  .s-info { background: var(--info-bg); color: var(--info); }
+  .s-all { background: #e0e7ff; color: #3730a3; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .toolbar input { flex: 1; min-width: 200px; }
+  .report { margin-bottom: 24px; }
+  .report h3 { margin: 0 0 10px; font-size: 17px; }
+  .report .sub { font-size: 13px; color: var(--muted); margin: -6px 0 10px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; background: #fff; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+  th { background: #f9fafb; font-weight: 600; position: sticky; top: 0; }
+  tr:hover td { background: #f9fafb; }
+  td.num { color: var(--muted); width: 40px; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .diff { background: #fde68a; border-radius: 3px; }
+  .empty { padding: 24px; text-align: center; color: var(--muted); }
+  .print-header { display: none; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+
+  @media print {
+    body { background: #fff; }
+    header, .files, .options, .actions, .summary, .toolbar, .no-print, footer { display: none !important; }
+    main { padding: 0; max-width: none; }
+    .card { border: none; padding: 0; }
+    .report { page-break-after: always; }
+    .report:last-child { page-break-after: auto; }
+    .report.print-skip { display: none !important; }
+    .print-header { display: block; text-align: center; margin-bottom: 12px; }
+    .print-header h2 { margin: 0; font-size: 18px; }
+    .print-header p { margin: 4px 0 0; font-size: 12px; color: #555; }
+    th { position: static; }
+    th, td { white-space: normal; font-size: 12px; padding: 5px 6px; border: 1px solid #ccc; }
+    .table-wrap { overflow: visible; border: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 مقارنة ملفات Excel حسب الرقم الوظيفي</h1>
+  <p>استورد ملفين، سمِّ كل ملف، ثم اضغط «قارن» لعرض المتطابق والمختلف والناقص في كل ملف مع إمكانية الطباعة والتصدير</p>
+</header>
+
+<main>
+  <section class="files">
+    <!-- File A -->
+    <div class="card" id="cardA">
+      <h2><span class="badge-num">1</span> الملف الأول</h2>
+      <label for="nameA">اسم الملف (مثال: الحسابات، الإدارة)</label>
+      <input type="text" id="nameA" placeholder="اكتب اسم الملف الأول" value="الحسابات">
+      <label class="file-btn">📥 استيراد ملف Excel
+        <input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv">
+      </label>
+      <div class="file-info" id="infoA">لم يتم اختيار ملف</div>
+      <div class="cols hidden" id="colsA">
+        <div><label>الورقة (Sheet)</label><select id="sheetA"></select></div>
+        <div><label>عمود الرقم الوظيفي (ID)</label><select id="idColA"></select></div>
+        <div><label>عمود الاسم (Name)</label><select id="nameColA"></select></div>
+      </div>
+    </div>
+
+    <!-- File B -->
+    <div class="card" id="cardB">
+      <h2><span class="badge-num">2</span> الملف الثاني</h2>
+      <label for="nameB">اسم الملف (مثال: البصمة)</label>
+      <input type="text" id="nameB" placeholder="اكتب اسم الملف الثاني" value="البصمة">
+      <label class="file-btn">📥 استيراد ملف Excel
+        <input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv">
+      </label>
+      <div class="file-info" id="infoB">لم يتم اختيار ملف</div>
+      <div class="cols hidden" id="colsB">
+        <div><label>الورقة (Sheet)</label><select id="sheetB"></select></div>
+        <div><label>عمود الرقم الوظيفي (ID)</label><select id="idColB"></select></div>
+        <div><label>عمود الاسم (Name)</label><select id="nameColB"></select></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="card options">
+    <strong>خيارات المقارنة:</strong>
+    <label><input type="checkbox" id="optArabic" checked> توحيد الحروف العربية (أ إ آ ← ا ، ة ← ه ، ى ← ي)</label>
+    <label><input type="checkbox" id="optSpaces" checked> تجاهل المسافات الزائدة</label>
+    <label><input type="checkbox" id="optCase" checked> تجاهل حالة الأحرف الإنجليزية</label>
+    <label><input type="checkbox" id="optZeros"> تجاهل الأصفار في بداية الرقم الوظيفي</label>
+  </div>
+
+  <div class="actions">
+    <button class="btn-primary" id="compareBtn" disabled>🔍 قارن</button>
+    <button class="btn-light" id="saveJsonBtn" title="حفظ البيانات والنتائج كملف JSON">💾 حفظ JSON</button>
+    <label class="btn-light" style="display:inline-flex;align-items:center;padding:10px 18px;border-radius:8px;cursor:pointer;font-weight:600;margin:0;color:var(--text);font-size:15px">📂 فتح JSON
+      <input type="file" id="loadJson" accept=".json" style="display:none">
+    </label>
+  </div>
+
+  <section id="results" class="hidden">
+    <div class="summary" id="summary"></div>
+
+    <div class="card">
+      <div class="toolbar">
+        <input type="text" id="search" placeholder="🔎 بحث بالرقم الوظيفي أو الاسم...">
+        <button class="btn-light btn-sm" id="printCurrent">🖨️ طباعة التقرير المعروض</button>
+        <button class="btn-light btn-sm" id="printAll">🖨️ طباعة كل التقارير</button>
+        <button class="btn-light btn-sm" id="exportCurrent">📤 تصدير المعروض Excel</button>
+        <button class="btn-light btn-sm" id="exportAll">📤 تصدير الكل Excel</button>
+      </div>
+      <div id="reports"></div>
+    </div>
+  </section>
+</main>
+
+<footer>يعمل بالكامل داخل المتصفح — لا يتم رفع أي بيانات إلى الإنترنت</footer>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- State ----------
+  const files = {
+    A: { workbook: null, fileName: '', rows: [], headerRow: 0 },
+    B: { workbook: null, fileName: '', rows: [], headerRow: 0 }
+  };
+  let result = null;
+  let currentView = 'all';
+
+  const ID_KEYS = ['الرقم الوظيفي', 'رقم وظيفي', 'الرقم الوظيفى', 'رقم الموظف', 'الرقم', 'رقم', 'employee id', 'emp id', 'empid', 'emp no', 'employee no', 'staff id', 'id', 'no', 'code', 'كود', 'الكود'];
+  const NAME_KEYS = ['اسم الموظف', 'الاسم', 'اسم', 'employee name', 'full name', 'name'];
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- Helpers ----------
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function normId(v) {
+    let s = String(v ?? '').trim().replace(/\s+/g, '');
+    // Arabic-Indic digits → Latin
+    s = s.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+    if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+    if ($('optZeros').checked) s = s.replace(/^0+(?=.)/, '');
+    return s;
+  }
+
+  function normName(v) {
+    let s = String(v ?? '');
+    if ($('optSpaces').checked) s = s.replace(/\s+/g, ' ').trim();
+    if ($('optArabic').checked) {
+      s = s.replace(/[ً-ْـ]/g, '') // tashkeel + tatweel
+           .replace(/[أإآٱ]/g, 'ا')
+           .replace(/ة/g, 'ه')
+           .replace(/ى/g, 'ي')
+           .replace(/ؤ/g, 'و')
+           .replace(/ئ/g, 'ي');
+    }
+    if ($('optCase').checked) s = s.toLowerCase();
+    return s;
+  }
+
+  function similarity(a, b) {
+    if (a === b) return 100;
+    if (!a.length || !b.length) return 0;
+    const m = a.length, n = b.length;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) {
+      const cur = [i];
+      for (let j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur;
+    }
+    return Math.round((1 - prev[n] / Math.max(m, n)) * 100);
+  }
+
+  // Highlight words of `name` that are absent from `other`
+  function highlightDiff(name, other) {
+    const otherWords = new Set(normName(other).split(/\s+/));
+    return String(name ?? '').split(/(\s+)/).map(w => {
+      if (/^\s+$/.test(w) || !w) return w;
+      return otherWords.has(normName(w)) ? esc(w) : '<span class="diff">' + esc(w) + '</span>';
+    }).join('');
+  }
+
+  function detectHeaderRow(rows) {
+    const limit = Math.min(rows.length, 15);
+    let best = 0, bestScore = -1;
+    for (let r = 0; r < limit; r++) {
+      const cells = (rows[r] || []).map(c => String(c ?? '').trim().toLowerCase());
+      let score = 0;
+      cells.forEach(c => {
+        if (ID_KEYS.some(k => c === k || c.includes(k))) score += 2;
+        if (NAME_KEYS.some(k => c === k || c.includes(k))) score += 2;
+        if (c && isNaN(c)) score += 0.1;
+      });
+      if (score > bestScore) { bestScore = score; best = r; }
+    }
+    return best;
+  }
+
+  function guessCol(headers, keys, exclude) {
+    const lower = headers.map(h => String(h ?? '').trim().toLowerCase());
+    for (const k of keys) {
+      const i = lower.findIndex((h, idx) => idx !== exclude && h === k);
+      if (i >= 0) return i;
+    }
+    for (const k of keys) {
+      const i = lower.findIndex((h, idx) => idx !== exclude && h.includes(k));
+      if (i >= 0) return i;
+    }
+    return -1;
+  }
+
+  function colLetter(i) {
+    let s = '';
+    i++;
+    while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); }
+    return s;
+  }
+
+  // ---------- File loading ----------
+  function loadSheet(key) {
+    const f = files[key];
+    const sheetName = $('sheet' + key).value;
+    const ws = f.workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    f.rows = rows;
+    f.headerRow = detectHeaderRow(rows);
+    const headers = rows[f.headerRow] || [];
+    const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
+
+    const idSel = $('idCol' + key), nameSel = $('nameCol' + key);
+    idSel.innerHTML = ''; nameSel.innerHTML = '';
+    for (let i = 0; i < width; i++) {
+      const label = colLetter(i) + ' — ' + (String(headers[i] ?? '').trim() || '(بدون عنوان)');
+      idSel.add(new Option(label, i));
+      nameSel.add(new Option(label, i));
+    }
+    let idIdx = guessCol(headers, ID_KEYS, -1);
+    let nameIdx = guessCol(headers, NAME_KEYS, idIdx);
+    if (idIdx < 0) idIdx = 0;
+    if (nameIdx < 0) nameIdx = Math.min(1, width - 1);
+    idSel.value = idIdx; nameSel.value = nameIdx;
+
+    const dataCount = Math.max(0, rows.length - f.headerRow - 1);
+    $('info' + key).innerHTML = '✅ <b>' + esc(f.fileName) + '</b> — ' + dataCount + ' صف (صف العناوين: ' + (f.headerRow + 1) + ')';
+    updateCompareBtn();
+  }
+
+  function handleFile(key, file) {
+    if (!file) return;
+    if (typeof XLSX === 'undefined') {
+      alert('تعذر تحميل مكتبة قراءة Excel. تأكد من الاتصال بالإنترنت عند فتح الصفحة لأول مرة.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const isCsv = /\.csv$/i.test(file.name);
+        const wb = isCsv
+          ? XLSX.read(new TextDecoder('utf-8').decode(e.target.result).replace(/^﻿/, ''), { type: 'string', raw: true })
+          : XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
+        files[key].workbook = wb;
+        files[key].fileName = file.name;
+        const sel = $('sheet' + key);
+        sel.innerHTML = '';
+        wb.SheetNames.forEach(n => sel.add(new Option(n, n)));
+        $('cols' + key).classList.remove('hidden');
+        loadSheet(key);
+      } catch (err) {
+        alert('تعذرت قراءة الملف: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function updateCompareBtn() {
+    $('compareBtn').disabled = !(files.A.rows.length && files.B.rows.length);
+  }
+
+  function extract(key) {
+    const f = files[key];
+    const idIdx = +$('idCol' + key).value, nameIdx = +$('nameCol' + key).value;
+    const list = [];
+    for (let r = f.headerRow + 1; r < f.rows.length; r++) {
+      const row = f.rows[r] || [];
+      const rawId = String(row[idIdx] ?? '').trim();
+      const name = String(row[nameIdx] ?? '').trim();
+      if (!rawId && !name) continue;
+      list.push({ id: normId(rawId), rawId, name, row: r + 1 });
+    }
+    return list;
+  }
+
+  // ---------- Compare ----------
+  function compare() {
+    const labelA = $('nameA').value.trim() || 'الملف الأول';
+    const labelB = $('nameB').value.trim() || 'الملف الثاني';
+    const listA = extract('A'), listB = extract('B');
+
+    const group = list => {
+      const map = new Map(), noId = [];
+      list.forEach(it => {
+        if (!it.id) { noId.push(it); return; }
+        if (!map.has(it.id)) map.set(it.id, []);
+        map.get(it.id).push(it);
+      });
+      return { map, noId };
+    };
+    const gA = group(listA), gB = group(listB);
+
+    const matched = [], nameDiff = [], onlyA = [], onlyB = [], dups = [];
+
+    gA.map.forEach((items, id) => { if (items.length > 1) items.forEach(it => dups.push({ file: labelA, ...it, count: items.length })); });
+    gB.map.forEach((items, id) => { if (items.length > 1) items.forEach(it => dups.push({ file: labelB, ...it, count: items.length })); });
+    gA.noId.forEach(it => dups.push({ file: labelA, ...it, count: 0 }));
+    gB.noId.forEach(it => dups.push({ file: labelB, ...it, count: 0 }));
+
+    gA.map.forEach((itemsA, id) => {
+      const a = itemsA[0];
+      const itemsB = gB.map.get(id);
+      if (!itemsB) { onlyA.push(a); return; }
+      const b = itemsB[0];
+      const na = normName(a.name), nb = normName(b.name);
+      if (na === nb) matched.push({ id, a, b });
+      else nameDiff.push({ id, a, b, sim: similarity(na, nb) });
+    });
+    gB.map.forEach((itemsB, id) => { if (!gA.map.has(id)) onlyB.push(itemsB[0]); });
+
+    const byId = (x, y) => String(x.id).localeCompare(String(y.id), undefined, { numeric: true });
+    [matched, nameDiff, onlyA, onlyB].forEach(l => l.sort(byId));
+    nameDiff.sort((x, y) => x.sim - y.sim || byId(x, y));
+
+    result = {
+      labelA, labelB, date: new Date().toLocaleString('ar'),
+      fileA: files.A.fileName, fileB: files.B.fileName,
+      totalA: listA.length, totalB: listB.length,
+      matched, nameDiff, onlyA, onlyB, dups
+    };
+    currentView = 'all';
+    render();
+  }
+
+  // ---------- Report definitions ----------
+  function reportDefs() {
+    const r = result, A = r.labelA, B = r.labelB;
+    return [
+      {
+        key: 'matched', cls: 's-ok', title: 'متطابق تماماً', desc: 'نفس الرقم الوظيفي ونفس الاسم في الملفين',
+        items: r.matched,
+        cols: ['الرقم الوظيفي', 'الاسم في ' + A, 'الاسم في ' + B],
+        cells: x => [esc(x.a.rawId), esc(x.a.name), esc(x.b.name)],
+        plain: x => [x.a.rawId, x.a.name, x.b.name]
+      },
+      {
+        key: 'nameDiff', cls: 's-warn', title: 'اختلاف في الاسم', desc: 'الرقم الوظيفي موجود في الملفين لكن الاسم مختلف (الكلمات المختلفة مظللة)',
+        items: r.nameDiff,
+        cols: ['الرقم الوظيفي', 'الاسم في ' + A, 'الاسم في ' + B, 'نسبة التشابه'],
+        cells: x => [esc(x.a.rawId), highlightDiff(x.a.name, x.b.name), highlightDiff(x.b.name, x.a.name),
+          '<span class="tag ' + (x.sim >= 80 ? 's-warn' : 's-bad') + '">' + x.sim + '%</span>'],
+        plain: x => [x.a.rawId, x.a.name, x.b.name, x.sim + '%']
+      },
+      {
+        key: 'onlyA', cls: 's-bad', title: 'موجود في ' + A + ' فقط', desc: 'غير موجود في ' + B,
+        items: r.onlyA,
+        cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
+        cells: x => [esc(x.rawId), esc(x.name), x.row],
+        plain: x => [x.rawId, x.name, x.row]
+      },
+      {
+        key: 'onlyB', cls: 's-bad', title: 'موجود في ' + B + ' فقط', desc: 'غير موجود في ' + A,
+        items: r.onlyB,
+        cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
+        cells: x => [esc(x.rawId), esc(x.name), x.row],
+        plain: x => [x.rawId, x.name, x.row]
+      },
+      {
+        key: 'dups', cls: 's-info', title: 'مكرر / بدون رقم', desc: 'أرقام وظيفية مكررة داخل نفس الملف أو صفوف بدون رقم وظيفي (تُقارن أول نسخة فقط)',
+        items: r.dups,
+        cols: ['الملف', 'الرقم الوظيفي', 'الاسم', 'رقم الصف', 'الملاحظة'],
+        cells: x => [esc(x.file), esc(x.rawId), esc(x.name), x.row, x.count ? 'مكرر ' + x.count + ' مرات' : 'بدون رقم وظيفي'],
+        plain: x => [x.file, x.rawId, x.name, x.row, x.count ? 'مكرر ' + x.count + ' مرات' : 'بدون رقم وظيفي']
+      }
+    ];
+  }
+
+  // ---------- Render ----------
+  function render() {
+    const r = result;
+    $('results').classList.remove('hidden');
+    const defs = reportDefs();
+    const totalDiff = r.nameDiff.length + r.onlyA.length + r.onlyB.length;
+
+    let html = '<div class="stat s-all' + (currentView === 'all' ? ' active' : '') + '" data-view="all">' +
+      '<div class="n">' + totalDiff + '</div><div class="t">إجمالي الفروقات<br>' + esc(r.labelA) + ': ' + r.totalA + ' | ' + esc(r.labelB) + ': ' + r.totalB + '</div></div>';
+    defs.forEach(d => {
+      html += '<div class="stat ' + d.cls + (currentView === d.key ? ' active' : '') + '" data-view="' + d.key + '">' +
+        '<div class="n">' + d.items.length + '</div><div class="t">' + esc(d.title) + '</div></div>';
+    });
+    $('summary').innerHTML = html;
+    $('summary').querySelectorAll('.stat').forEach(el => el.onclick = () => { currentView = el.dataset.view; render(); });
+
+    renderReports();
+    $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderReports() {
+    const q = $('search').value.trim();
+    const qn = normName(q), qi = normId(q);
+    const filter = (d, x) => {
+      if (!q) return true;
+      const p = d.plain(x).map(String);
+      return p.some(v => normName(v).includes(qn) || normId(v).includes(qi));
+    };
+
+    const defs = reportDefs().filter(d => currentView === 'all' || d.key === currentView);
+    $('reports').innerHTML = defs.map(d => {
+      const items = d.items.filter(x => filter(d, x));
+      const body = items.length
+        ? '<div class="table-wrap"><table><thead><tr><th>#</th>' + d.cols.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
+          items.map((x, i) => '<tr><td class="num">' + (i + 1) + '</td>' + d.cells(x).map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') +
+          '</tbody></table></div>'
+        : '<div class="empty">لا توجد سجلات</div>';
+      return '<div class="report" data-key="' + d.key + '">' +
+        '<div class="print-header"><h2>' + esc(d.title) + ' (' + items.length + ')</h2><p>مقارنة: ' + esc(result.labelA) + ' مع ' + esc(result.labelB) + ' — ' + esc(result.date) + '</p></div>' +
+        '<h3 class="no-print"><span class="tag ' + d.cls + '">' + items.length + '</span> ' + esc(d.title) +
+        ' <button class="btn-light btn-sm" data-print="' + d.key + '">🖨️ طباعة</button>' +
+        ' <button class="btn-light btn-sm" data-export="' + d.key + '">📤 Excel</button></h3>' +
+        '<p class="sub no-print">' + esc(d.desc) + '</p>' + body + '</div>';
+    }).join('');
+
+    $('reports').querySelectorAll('[data-print]').forEach(b => b.onclick = () => printReports([b.dataset.print]));
+    $('reports').querySelectorAll('[data-export]').forEach(b => b.onclick = () => exportReports([b.dataset.export]));
+  }
+
+  // ---------- Print ----------
+  function printReports(keys) {
+    const prevView = currentView;
+    if (keys) {
+      // Render all so any requested report is present, then hide the others while printing
+      currentView = 'all';
+      renderReports();
+      document.querySelectorAll('.report').forEach(el => el.classList.toggle('print-skip', !keys.includes(el.dataset.key)));
+    }
+    window.print();
+    currentView = prevView;
+    renderReports();
+  }
+
+  // ---------- Export ----------
+  function exportReports(keys) {
+    const wb = XLSX.utils.book_new();
+    wb.Workbook = { Views: [{ RTL: true }] };
+    const defs = reportDefs().filter(d => !keys || keys.includes(d.key));
+    const used = new Set();
+    defs.forEach(d => {
+      const data = [d.cols].concat(d.items.map(d.plain));
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = d.cols.map((c, i) => ({ wch: i === 0 ? 14 : 30 }));
+      let name = d.title.replace(/[\\\/\?\*\[\]:]/g, '').slice(0, 31);
+      while (used.has(name)) name = name.slice(0, 29) + '_' + used.size;
+      used.add(name);
+      XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    const suffix = keys && keys.length === 1 ? '_' + defs[0].title : '';
+    XLSX.writeFile(wb, ('مقارنة_' + result.labelA + '_' + result.labelB + suffix).replace(/[\\\/\?\*\[\]:\s]+/g, '_') + '.xlsx');
+  }
+
+  // ---------- JSON save / load ----------
+  function saveJson() {
+    const payload = {
+      app: 'excel-compare', version: 1,
+      labelA: $('nameA').value, labelB: $('nameB').value,
+      options: { arabic: $('optArabic').checked, spaces: $('optSpaces').checked, caseI: $('optCase').checked, zeros: $('optZeros').checked },
+      fileA: files.A.rows.length ? { fileName: files.A.fileName, data: extract('A') } : null,
+      fileB: files.B.rows.length ? { fileName: files.B.fileName, data: extract('B') } : null,
+      result
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'مقارنة_' + ($('nameA').value || 'A') + '_' + ($('nameB').value || 'B') + '.json';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  function loadJson(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const p = JSON.parse(e.target.result);
+        if (p.app !== 'excel-compare') throw new Error('ملف JSON غير متوافق');
+        $('nameA').value = p.labelA || ''; $('nameB').value = p.labelB || '';
+        if (p.options) {
+          $('optArabic').checked = !!p.options.arabic; $('optSpaces').checked = !!p.options.spaces;
+          $('optCase').checked = !!p.options.caseI; $('optZeros').checked = !!p.options.zeros;
+        }
+        // Rebuild in-memory sheets from saved ID/name data so comparison can be re-run
+        ['A', 'B'].forEach(k => {
+          const src = p['file' + k];
+          if (!src) return;
+          const rows = [['ID', 'Name']].concat(src.data.map(d => [d.rawId, d.name]));
+          const ws = XLSX.utils.aoa_to_sheet(rows);
+          const wb = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(wb, ws, 'Data');
+          files[k].workbook = wb; files[k].fileName = src.fileName;
+          const sel = $('sheet' + k); sel.innerHTML = ''; sel.add(new Option('Data', 'Data'));
+          $('cols' + k).classList.remove('hidden');
+          loadSheet(k);
+        });
+        if (p.result) { result = p.result; currentView = 'all'; render(); }
+      } catch (err) {
+        alert('تعذر فتح ملف JSON: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // ---------- Wiring ----------
+  ['A', 'B'].forEach(k => {
+    $('file' + k).addEventListener('change', e => { handleFile(k, e.target.files[0]); e.target.value = ''; });
+    $('sheet' + k).addEventListener('change', () => loadSheet(k));
+  });
+  $('compareBtn').onclick = compare;
+  $('search').oninput = renderReports;
+  $('printCurrent').onclick = () => printReports(currentView === 'all' ? null : [currentView]);
+  $('printAll').onclick = () => printReports(reportDefs().map(d => d.key));
+  $('exportCurrent').onclick = () => exportReports(currentView === 'all' ? null : [currentView]);
+  $('exportAll').onclick = () => exportReports(null);
+  $('saveJsonBtn').onclick = saveJson;
+  $('loadJson').addEventListener('change', e => { if (e.target.files[0]) loadJson(e.target.files[0]); e.target.value = ''; });
+})();
+</script>
+</body>
+</html>
