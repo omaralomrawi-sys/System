@@ -70,6 +70,42 @@
   .tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
   .diff { background: #fde68a; border-radius: 3px; }
   .empty { padding: 24px; text-align: center; color: var(--muted); }
+  .act { white-space: nowrap; }
+  .act button { padding: 3px 8px; font-size: 12px; margin: 1px; border: 1px solid var(--border); background: #fff; border-radius: 6px; font-weight: 600; }
+  .act button:hover { background: #f3f4f6; }
+  .act .b-ok { color: var(--ok); border-color: #86efac; }
+  .act .b-warn { color: var(--warn); border-color: #fcd34d; }
+  .act .b-bad { color: var(--bad); border-color: #fca5a5; }
+  .act .b-link { color: var(--primary); border-color: #93c5fd; }
+  .tag-manual { background: #e0e7ff; color: #3730a3; margin-inline-start: 6px; }
+  .s-rec { background: #cffafe; color: #0e7490; }
+  .s-conf { background: #f3f4f6; color: #4b5563; }
+
+  .progress { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; }
+  .progress .bar { height: 12px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 8px; }
+  .progress .bar div { height: 100%; background: linear-gradient(90deg, #16a34a, #22c55e); transition: width .3s; }
+  .progress .done { color: var(--ok); font-weight: 700; }
+
+  .rec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .rec-grid { grid-template-columns: 1fr; } }
+  .rec-col { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .rec-col h4 { margin: 0; padding: 10px 12px; background: #f9fafb; border-bottom: 1px solid var(--border); font-size: 15px; display: flex; justify-content: space-between; }
+  .rec-col input { border-radius: 0; border: none; border-bottom: 1px solid var(--border); }
+  .rec-list { max-height: 460px; overflow-y: auto; }
+  .rec-item { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .rec-item:hover { background: #f9fafb; }
+  .rec-item.sel { background: #dbeafe; outline: 2px solid var(--primary); outline-offset: -2px; }
+  .rec-item .rid { color: var(--muted); font-size: 13px; min-width: 70px; }
+  .rec-item .rname { flex: 1; }
+  .rec-item .rsim { font-size: 12px; }
+  .rec-bar { position: sticky; bottom: 0; background: #fff; border: 2px solid var(--primary); border-radius: 10px; padding: 12px; margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; box-shadow: 0 -4px 12px rgba(0,0,0,.06); }
+  .rec-bar .pick { flex: 1; min-width: 220px; font-size: 14px; }
+  .rec-bar .pick b { color: var(--primary-dark); }
+  .btn-ok { background: var(--ok); color: #fff; }
+  .btn-warn { background: var(--warn); color: #fff; }
+  .btn-bad { background: #fff; color: var(--bad); border: 1px solid #fca5a5; }
+  .btn-ok:disabled, .btn-warn:disabled, .btn-bad:disabled { opacity: .45; cursor: not-allowed; }
+
   .print-header { display: none; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
 
@@ -80,7 +116,7 @@
     .card { border: none; padding: 0; }
     .report { page-break-after: always; }
     .report:last-child { page-break-after: auto; }
-    .report.print-skip { display: none !important; }
+    .report.print-skip, .act { display: none !important; }
     .print-header { display: block; text-align: center; margin-bottom: 12px; }
     .print-header h2 { margin: 0; font-size: 18px; }
     .print-header p { margin: 4px 0 0; font-size: 12px; color: #555; }
@@ -150,6 +186,7 @@
 
   <section id="results" class="hidden">
     <div class="summary" id="summary"></div>
+    <div class="progress" id="progress"></div>
 
     <div class="card">
       <div class="toolbar">
@@ -347,6 +384,10 @@
   }
 
   // ---------- Compare ----------
+  let uidSeq = 0;
+  const sel = { A: null, B: null };        // selected uids in the manual-matching view
+  const recSearch = { A: '', B: '' };
+
   function compare() {
     const labelA = $('nameA').value.trim() || 'الملف الأول';
     const labelB = $('nameB').value.trim() || 'الملف الثاني';
@@ -365,8 +406,8 @@
 
     const matched = [], nameDiff = [], onlyA = [], onlyB = [], dups = [];
 
-    gA.map.forEach((items, id) => { if (items.length > 1) items.forEach(it => dups.push({ file: labelA, ...it, count: items.length })); });
-    gB.map.forEach((items, id) => { if (items.length > 1) items.forEach(it => dups.push({ file: labelB, ...it, count: items.length })); });
+    gA.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelA, ...it, count: items.length })); });
+    gB.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelB, ...it, count: items.length })); });
     gA.noId.forEach(it => dups.push({ file: labelA, ...it, count: 0 }));
     gB.noId.forEach(it => dups.push({ file: labelB, ...it, count: 0 }));
 
@@ -381,52 +422,163 @@
     });
     gB.map.forEach((itemsB, id) => { if (!gA.map.has(id)) onlyB.push(itemsB[0]); });
 
-    const byId = (x, y) => String(x.id).localeCompare(String(y.id), undefined, { numeric: true });
-    [matched, nameDiff, onlyA, onlyB].forEach(l => l.sort(byId));
-    nameDiff.sort((x, y) => x.sim - y.sim || byId(x, y));
-
     result = {
       labelA, labelB, date: new Date().toLocaleString('ar'),
       fileA: files.A.fileName, fileB: files.B.fileName,
       totalA: listA.length, totalB: listB.length,
-      matched, nameDiff, onlyA, onlyB, dups
+      matched, nameDiff, onlyA, onlyB, dups, confirmed: []
     };
+    sel.A = sel.B = null;
     currentView = 'all';
+    tidy();
+    render();
+    $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // Give every movable record a unique id and keep lists sorted
+  function tidy() {
+    const r = result;
+    r.confirmed = r.confirmed || [];
+    const lists = [r.matched, r.nameDiff, r.onlyA, r.onlyB, r.confirmed];
+    lists.forEach(l => l.forEach(x => { if (x.uid) uidSeq = Math.max(uidSeq, x.uid); }));
+    lists.forEach(l => l.forEach(x => { if (!x.uid) x.uid = ++uidSeq; }));
+    const byId = (x, y) => String(x.id).localeCompare(String(y.id), undefined, { numeric: true });
+    [r.matched, r.onlyA, r.onlyB, r.confirmed].forEach(l => l.sort(byId));
+    r.nameDiff.sort((x, y) => x.sim - y.sim || byId(x, y));
+    if (sel.A && !r.onlyA.some(x => x.uid === sel.A)) sel.A = null;
+    if (sel.B && !r.onlyB.some(x => x.uid === sel.B)) sel.B = null;
+  }
+
+  function take(list, uid) {
+    const i = list.findIndex(x => x.uid === uid);
+    return i < 0 ? null : list.splice(i, 1)[0];
+  }
+
+  const pairId = p => p.a.id === p.b.id ? p.a.rawId : p.a.rawId + ' ↔ ' + p.b.rawId;
+  const methodText = p => p.manual === 'link' ? 'ربط يدوي' : p.manual === 'verified' ? 'نُقل بعد التحقق' : 'تلقائي';
+  const methodTag = p => p.manual ? '<span class="tag tag-manual">' + methodText(p) + '</span>' : '';
+
+  // ---------- Moving records between reports ----------
+  function doAction(act, uid) {
+    const r = result, A = r.labelA, B = r.labelB;
+    const find = list => list.find(x => x.uid === uid);
+    let p, it;
+    switch (act) {
+      case 'toExact':
+        p = find(r.nameDiff);
+        if (!p || !confirm('نقل إلى «متطابق تماماً» بعد التأكد؟\n\n' + A + ': ' + p.a.name + ' (' + p.a.rawId + ')\n' + B + ': ' + p.b.name + ' (' + p.b.rawId + ')')) return;
+        take(r.nameDiff, uid); p.manual = p.manual || 'verified'; r.matched.push(p);
+        break;
+      case 'toPartial':
+        p = find(r.matched);
+        if (!p || !confirm('نقل إلى «اختلاف في الاسم / مطابقة جزئية»؟\n\n' + A + ': ' + p.a.name + '\n' + B + ': ' + p.b.name)) return;
+        take(r.matched, uid);
+        if (p.sim == null) p.sim = similarity(normName(p.a.name), normName(p.b.name));
+        p.manual = p.manual || 'verified'; r.nameDiff.push(p);
+        break;
+      case 'unlink':
+        p = find(r.matched) || find(r.nameDiff);
+        if (!p || !confirm('فك الربط وإرجاع الاسمين إلى قائمة الباقي؟\n\n' + A + ': ' + p.a.name + '\n' + B + ': ' + p.b.name)) return;
+        take(r.matched, uid) || take(r.nameDiff, uid);
+        r.onlyA.push(p.a); r.onlyB.push(p.b);
+        break;
+      case 'matchA': case 'matchB':
+        sel[act.slice(-1)] = uid; currentView = 'reconcile';
+        break;
+      case 'missA': case 'missB': {
+        const side = act.slice(-1), list = side === 'A' ? r.onlyA : r.onlyB;
+        it = find(list);
+        const other = side === 'A' ? B : A;
+        if (!it || !confirm('تأكيد أن «' + it.name + '» (' + it.rawId + ') غير موجود فعلاً في ' + other + '؟')) return;
+        take(list, uid); it.side = side; r.confirmed.push(it);
+        break;
+      }
+      case 'restore':
+        it = take(r.confirmed, uid);
+        if (!it) return;
+        (it.side === 'A' ? r.onlyA : r.onlyB).push(it); delete it.side;
+        break;
+      default: return;
+    }
+    tidy();
+    render();
+  }
+
+  function linkSelected(type) {
+    const r = result;
+    const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
+    if (!a || !b) return;
+    const label = type === 'exact' ? 'متطابق تماماً' : 'مطابقة جزئية (اختلاف في الاسم)';
+    if (!confirm('تأكيد الربط كـ «' + label + '»؟\n\n' + r.labelA + ': ' + a.name + ' (' + a.rawId + ')\n' + r.labelB + ': ' + b.name + ' (' + b.rawId + ')')) return;
+    take(r.onlyA, a.uid); take(r.onlyB, b.uid);
+    const pair = { id: a.id, a, b, manual: 'link', sim: similarity(normName(a.name), normName(b.name)) };
+    (type === 'exact' ? r.matched : r.nameDiff).push(pair);
+    sel.A = sel.B = null;
+    tidy();
+    render();
+  }
+
+  function markSelectedMissing() {
+    const r = result;
+    const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
+    const picked = [a && [a, 'A', r.labelB], b && [b, 'B', r.labelA]].filter(Boolean);
+    if (!picked.length) return;
+    const msg = picked.map(([x, , other]) => '• ' + x.name + ' (' + x.rawId + ') غير موجود في ' + other).join('\n');
+    if (!confirm('تأكيد عدم الوجود:\n\n' + msg)) return;
+    picked.forEach(([x, side]) => { take(side === 'A' ? r.onlyA : r.onlyB, x.uid); x.side = side; r.confirmed.push(x); });
+    sel.A = sel.B = null;
+    tidy();
     render();
   }
 
   // ---------- Report definitions ----------
+  function btn(act, uid, cls, text) {
+    return '<button class="' + cls + '" data-act="' + act + '" data-uid="' + uid + '">' + text + '</button>';
+  }
+
   function reportDefs() {
     const r = result, A = r.labelA, B = r.labelB;
     return [
       {
-        key: 'matched', cls: 's-ok', title: 'متطابق تماماً', desc: 'نفس الرقم الوظيفي ونفس الاسم في الملفين',
+        key: 'matched', cls: 's-ok', title: 'متطابق تماماً', desc: 'نفس الرقم الوظيفي ونفس الاسم في الملفين، أو تم ربطه/نقله يدوياً بعد التأكد',
         items: r.matched,
-        cols: ['الرقم الوظيفي', 'الاسم في ' + A, 'الاسم في ' + B],
-        cells: x => [esc(x.a.rawId), esc(x.a.name), esc(x.b.name)],
-        plain: x => [x.a.rawId, x.a.name, x.b.name]
+        cols: ['الرقم الوظيفي', 'الاسم في ' + A, 'الاسم في ' + B, 'طريقة المطابقة'],
+        cells: x => [esc(pairId(x)), esc(x.a.name), esc(x.b.name), methodText(x)],
+        plain: x => [pairId(x), x.a.name, x.b.name, methodText(x)],
+        actions: x => btn('toPartial', x.uid, 'b-warn', '⇠ جزئي') + btn('unlink', x.uid, 'b-bad', '✂ فك الربط')
       },
       {
-        key: 'nameDiff', cls: 's-warn', title: 'اختلاف في الاسم', desc: 'الرقم الوظيفي موجود في الملفين لكن الاسم مختلف (الكلمات المختلفة مظللة)',
+        key: 'nameDiff', cls: 's-warn', title: 'اختلاف في الاسم (مطابقة جزئية)', desc: 'الرقم الوظيفي موجود في الملفين لكن الاسم مختلف (الكلمات المختلفة مظللة). بعد التأكد انقله إلى «متطابق تماماً»',
         items: r.nameDiff,
         cols: ['الرقم الوظيفي', 'الاسم في ' + A, 'الاسم في ' + B, 'نسبة التشابه'],
-        cells: x => [esc(x.a.rawId), highlightDiff(x.a.name, x.b.name), highlightDiff(x.b.name, x.a.name),
+        cells: x => [esc(pairId(x)) + methodTag(x), highlightDiff(x.a.name, x.b.name), highlightDiff(x.b.name, x.a.name),
           '<span class="tag ' + (x.sim >= 80 ? 's-warn' : 's-bad') + '">' + x.sim + '%</span>'],
-        plain: x => [x.a.rawId, x.a.name, x.b.name, x.sim + '%']
+        plain: x => [pairId(x), x.a.name, x.b.name, x.sim + '%'],
+        actions: x => btn('toExact', x.uid, 'b-ok', '✔ نقل إلى تام') + btn('unlink', x.uid, 'b-bad', '✂ فك الربط')
       },
       {
-        key: 'onlyA', cls: 's-bad', title: 'موجود في ' + A + ' فقط', desc: 'غير موجود في ' + B,
+        key: 'onlyA', cls: 's-bad', title: 'موجود في ' + A + ' فقط', desc: 'غير موجود في ' + B + ' — استخدم «مطابقة يدوية» لربطه باسم من ' + B,
         items: r.onlyA,
         cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
         cells: x => [esc(x.rawId), esc(x.name), x.row],
-        plain: x => [x.rawId, x.name, x.row]
+        plain: x => [x.rawId, x.name, x.row],
+        actions: x => btn('matchA', x.uid, 'b-link', '🔗 مطابقة يدوية') + btn('missA', x.uid, 'b-bad', '✖ غير موجود فعلاً')
       },
       {
-        key: 'onlyB', cls: 's-bad', title: 'موجود في ' + B + ' فقط', desc: 'غير موجود في ' + A,
+        key: 'onlyB', cls: 's-bad', title: 'موجود في ' + B + ' فقط', desc: 'غير موجود في ' + A + ' — استخدم «مطابقة يدوية» لربطه باسم من ' + A,
         items: r.onlyB,
         cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
         cells: x => [esc(x.rawId), esc(x.name), x.row],
-        plain: x => [x.rawId, x.name, x.row]
+        plain: x => [x.rawId, x.name, x.row],
+        actions: x => btn('matchB', x.uid, 'b-link', '🔗 مطابقة يدوية') + btn('missB', x.uid, 'b-bad', '✖ غير موجود فعلاً')
+      },
+      {
+        key: 'confirmed', cls: 's-conf', title: 'مؤكد غير موجود', desc: 'أسماء تم التأكد أنها غير موجودة في الملف الآخر',
+        items: r.confirmed,
+        cols: ['موجود في', 'غير موجود في', 'الرقم الوظيفي', 'الاسم', 'رقم الصف'],
+        cells: x => [esc(x.side === 'A' ? A : B), esc(x.side === 'A' ? B : A), esc(x.rawId), esc(x.name), x.row],
+        plain: x => [x.side === 'A' ? A : B, x.side === 'A' ? B : A, x.rawId, x.name, x.row],
+        actions: x => btn('restore', x.uid, 'b-link', '↩ إرجاع للباقي')
       },
       {
         key: 'dups', cls: 's-info', title: 'مكرر / بدون رقم', desc: 'أرقام وظيفية مكررة داخل نفس الملف أو صفوف بدون رقم وظيفي (تُقارن أول نسخة فقط)',
@@ -439,26 +591,45 @@
   }
 
   // ---------- Render ----------
+  function tile(view, cls, n, text) {
+    return '<div class="stat ' + cls + (currentView === view ? ' active' : '') + '" data-view="' + view + '">' +
+      '<div class="n">' + n + '</div><div class="t">' + text + '</div></div>';
+  }
+
   function render() {
     const r = result;
     $('results').classList.remove('hidden');
     const defs = reportDefs();
+    const get = k => defs.find(d => d.key === k);
     const totalDiff = r.nameDiff.length + r.onlyA.length + r.onlyB.length;
+    const remaining = r.onlyA.length + r.onlyB.length;
 
-    let html = '<div class="stat s-all' + (currentView === 'all' ? ' active' : '') + '" data-view="all">' +
-      '<div class="n">' + totalDiff + '</div><div class="t">إجمالي الفروقات<br>' + esc(r.labelA) + ': ' + r.totalA + ' | ' + esc(r.labelB) + ': ' + r.totalB + '</div></div>';
-    defs.forEach(d => {
-      html += '<div class="stat ' + d.cls + (currentView === d.key ? ' active' : '') + '" data-view="' + d.key + '">' +
-        '<div class="n">' + d.items.length + '</div><div class="t">' + esc(d.title) + '</div></div>';
-    });
+    let html = tile('all', 's-all', totalDiff, 'إجمالي الفروقات<br>' + esc(r.labelA) + ': ' + r.totalA + ' | ' + esc(r.labelB) + ': ' + r.totalB);
+    ['matched', 'nameDiff', 'onlyA', 'onlyB'].forEach(k => { const d = get(k); html += tile(k, d.cls, d.items.length, esc(d.title)); });
+    html += tile('reconcile', 's-rec', remaining, '🔗 المطابقة اليدوية<br>(الباقي من الملفين)');
+    ['confirmed', 'dups'].forEach(k => { const d = get(k); html += tile(k, d.cls, d.items.length, esc(d.title)); });
     $('summary').innerHTML = html;
     $('summary').querySelectorAll('.stat').forEach(el => el.onclick = () => { currentView = el.dataset.view; render(); });
 
+    // Progress towards a complete reconciliation
+    const handled = (r.matched.length + r.nameDiff.length) * 2 + r.confirmed.length;
+    const pct = handled + remaining ? Math.round(handled / (handled + remaining) * 100) : 100;
+    $('progress').innerHTML = remaining
+      ? 'نسبة الإنجاز: <b>' + pct + '%</b> — الباقي بدون مطابقة: ' + esc(r.labelA) + ' <b>' + r.onlyA.length + '</b> ، ' + esc(r.labelB) + ' <b>' + r.onlyB.length + '</b>' +
+        (r.nameDiff.length ? ' — مطابقة جزئية بانتظار التحقق: <b>' + r.nameDiff.length + '</b>' : '') +
+        '<div class="bar"><div style="width:' + pct + '%"></div></div>'
+      : '<span class="done">✅ اكتملت المقارنة — لا يوجد أي اسم باقٍ بدون مطابقة</span>' +
+        (r.nameDiff.length ? ' (مطابقة جزئية بانتظار التحقق: <b>' + r.nameDiff.length + '</b>)' : '') +
+        '<div class="bar"><div style="width:100%"></div></div>';
+
     renderReports();
-    $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function renderReports() {
+    const rec = currentView === 'reconcile';
+    $('search').style.display = rec ? 'none' : '';
+    if (rec) { renderReconcile(); return; }
+
     const q = $('search').value.trim();
     const qn = normName(q), qi = normId(q);
     const filter = (d, x) => {
@@ -470,9 +641,11 @@
     const defs = reportDefs().filter(d => currentView === 'all' || d.key === currentView);
     $('reports').innerHTML = defs.map(d => {
       const items = d.items.filter(x => filter(d, x));
+      const actTh = d.actions ? '<th class="act">إجراء</th>' : '';
       const body = items.length
-        ? '<div class="table-wrap"><table><thead><tr><th>#</th>' + d.cols.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
-          items.map((x, i) => '<tr><td class="num">' + (i + 1) + '</td>' + d.cells(x).map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') +
+        ? '<div class="table-wrap"><table><thead><tr><th>#</th>' + d.cols.map(c => '<th>' + esc(c) + '</th>').join('') + actTh + '</tr></thead><tbody>' +
+          items.map((x, i) => '<tr><td class="num">' + (i + 1) + '</td>' + d.cells(x).map(c => '<td>' + c + '</td>').join('') +
+            (d.actions ? '<td class="act">' + d.actions(x) + '</td>' : '') + '</tr>').join('') +
           '</tbody></table></div>'
         : '<div class="empty">لا توجد سجلات</div>';
       return '<div class="report" data-key="' + d.key + '">' +
@@ -482,9 +655,67 @@
         ' <button class="btn-light btn-sm" data-export="' + d.key + '">📤 Excel</button></h3>' +
         '<p class="sub no-print">' + esc(d.desc) + '</p>' + body + '</div>';
     }).join('');
+  }
 
-    $('reports').querySelectorAll('[data-print]').forEach(b => b.onclick = () => printReports([b.dataset.print]));
-    $('reports').querySelectorAll('[data-export]').forEach(b => b.onclick = () => exportReports([b.dataset.export]));
+  // ---------- Manual matching view (remaining names side by side) ----------
+  function renderReconcile() {
+    const r = result;
+    const col = k => '<div class="rec-col"><h4><span>الباقي من ' + esc(k === 'A' ? r.labelA : r.labelB) + '</span><span class="tag s-bad" id="recCnt' + k + '"></span></h4>' +
+      '<input type="text" id="recSearch' + k + '" placeholder="🔎 بحث بالرقم أو الاسم..." value="' + esc(recSearch[k]) + '">' +
+      '<div class="rec-list" id="recList' + k + '"></div></div>';
+    $('reports').innerHTML = '<div class="report no-print">' +
+      '<h3>🔗 المطابقة اليدوية — الباقي بعد المتطابق التام والجزئي</h3>' +
+      '<p class="sub">اختر اسماً من ' + esc(r.labelA) + ' واسماً من ' + esc(r.labelB) + ' ثم اربطهما كمطابق تام أو جزئي بعد التأكد. ' +
+      'عند اختيار اسم من جهة تُرتَّب القائمة الأخرى حسب نسبة التشابه (الأقرب أولاً). وإذا تأكدت أن الاسم غير موجود في الملف الآخر اضغط «غير موجود فعلاً».</p>' +
+      '<div class="rec-grid">' + col('A') + col('B') + '</div>' +
+      '<div class="rec-bar" id="recBar"></div></div>';
+    ['A', 'B'].forEach(k => {
+      $('recSearch' + k).oninput = e => { recSearch[k] = e.target.value; renderRecLists(); };
+    });
+    renderRecLists();
+  }
+
+  function renderRecLists() {
+    const r = result;
+    ['A', 'B'].forEach(k => {
+      const other = k === 'A' ? 'B' : 'A';
+      const list = r['only' + k];
+      const selOther = sel[other] && r['only' + other].find(x => x.uid === sel[other]);
+      const q = recSearch[k].trim(), qn = normName(q), qi = normId(q);
+      let items = list
+        .filter(x => !q || normName(x.name).includes(qn) || normId(x.rawId).includes(qi))
+        .map(x => ({ x, sim: selOther ? similarity(normName(x.name), normName(selOther.name)) : null }));
+      if (selOther) items.sort((p, q2) => q2.sim - p.sim);
+      $('recCnt' + k).textContent = list.length;
+      $('recList' + k).innerHTML = items.length
+        ? items.map(({ x, sim }) => '<div class="rec-item' + (sel[k] === x.uid ? ' sel' : '') + '" data-side="' + k + '" data-uid="' + x.uid + '">' +
+            '<span class="rid">' + esc(x.rawId) + '</span><span class="rname">' + esc(x.name) + '</span>' +
+            (sim != null ? '<span class="tag rsim ' + (sim >= 80 ? 's-ok' : sim >= 50 ? 's-warn' : 's-bad') + '">' + sim + '%</span>' : '') + '</div>').join('')
+        : '<div class="empty">' + (list.length ? 'لا توجد نتائج للبحث' : '✅ لا يوجد باقي') + '</div>';
+      $('recList' + k).querySelectorAll('.rec-item').forEach(el => el.onclick = () => {
+        const uid = +el.dataset.uid;
+        sel[k] = sel[k] === uid ? null : uid;
+        renderRecLists();
+      });
+    });
+    renderRecBar();
+  }
+
+  function renderRecBar() {
+    const r = result;
+    const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
+    const show = (x, label) => esc(label) + ': ' + (x ? '<b>' + esc(x.name) + '</b> (' + esc(x.rawId) + ')' : '<span style="color:var(--muted)">لم يتم الاختيار</span>');
+    const sim = a && b ? similarity(normName(a.name), normName(b.name)) : null;
+    $('recBar').innerHTML = '<div class="pick">' + show(a, r.labelA) + '<br>' + show(b, r.labelB) +
+      (sim != null ? '<br>نسبة التشابه: <b>' + sim + '%</b>' : '') + '</div>' +
+      '<button class="btn-ok" id="linkExact"' + (a && b ? '' : ' disabled') + '>✔ ربط كمطابق تام</button>' +
+      '<button class="btn-warn" id="linkPartial"' + (a && b ? '' : ' disabled') + '>≈ ربط كمطابق جزئي</button>' +
+      '<button class="btn-bad" id="markMissing"' + (a || b ? '' : ' disabled') + '>✖ غير موجود فعلاً</button>' +
+      '<button class="btn-light" id="clearSel"' + (a || b ? '' : ' disabled') + '>إلغاء التحديد</button>';
+    $('linkExact').onclick = () => linkSelected('exact');
+    $('linkPartial').onclick = () => linkSelected('partial');
+    $('markMissing').onclick = markSelectedMissing;
+    $('clearSel').onclick = () => { sel.A = sel.B = null; renderRecLists(); };
   }
 
   // ---------- Print ----------
@@ -500,6 +731,8 @@
     currentView = prevView;
     renderReports();
   }
+
+  const currentKeys = () => currentView === 'all' ? null : currentView === 'reconcile' ? ['onlyA', 'onlyB'] : [currentView];
 
   // ---------- Export ----------
   function exportReports(keys) {
@@ -562,7 +795,7 @@
           $('cols' + k).classList.remove('hidden');
           loadSheet(k);
         });
-        if (p.result) { result = p.result; currentView = 'all'; render(); }
+        if (p.result) { result = p.result; sel.A = sel.B = null; currentView = 'all'; tidy(); render(); }
       } catch (err) {
         alert('تعذر فتح ملف JSON: ' + err.message);
       }
@@ -577,9 +810,16 @@
   });
   $('compareBtn').onclick = compare;
   $('search').oninput = renderReports;
-  $('printCurrent').onclick = () => printReports(currentView === 'all' ? null : [currentView]);
+  $('printCurrent').onclick = () => printReports(currentKeys());
   $('printAll').onclick = () => printReports(reportDefs().map(d => d.key));
-  $('exportCurrent').onclick = () => exportReports(currentView === 'all' ? null : [currentView]);
+  $('exportCurrent').onclick = () => exportReports(currentKeys());
+  $('reports').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.act) doAction(b.dataset.act, +b.dataset.uid);
+    else if (b.dataset.print) printReports([b.dataset.print]);
+    else if (b.dataset.export) exportReports([b.dataset.export]);
+  });
   $('exportAll').onclick = () => exportReports(null);
   $('saveJsonBtn').onclick = saveJson;
   $('loadJson').addEventListener('change', e => { if (e.target.files[0]) loadJson(e.target.files[0]); e.target.value = ''; });
