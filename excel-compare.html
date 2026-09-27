@@ -125,6 +125,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   .rec-bar .pick { flex: 1; min-width: 220px; font-size: 14px; }
   .rec-bar .pick b { color: var(--primary-dark); }
   .btn-ok { background: var(--ok); color: #fff; }
+  .pending { flex-basis: 100%; border-top: 1px solid var(--border); padding-top: 10px; }
+  .pending-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .pending-list { max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .pending-list td, .pending-list th { white-space: normal; padding: 6px 8px; }
+  .pending-list select { width: auto; padding: 4px 6px; font-size: 13px; }
+  .pending-actions { display: flex; gap: 10px; margin-top: 10px; }
   .btn-warn { background: var(--warn); color: #fff; }
   .btn-bad { background: #fff; color: var(--bad); border: 1px solid #fca5a5; }
   .btn-ok:disabled, .btn-warn:disabled, .btn-bad:disabled { opacity: .45; cursor: not-allowed; }
@@ -415,6 +421,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   // ---------- Compare ----------
   let uidSeq = 0;
   const sel = { A: null, B: null };        // selected uids in the manual-matching view
+  let pending = [];                          // pairs queued for approval: { a: uid, b: uid, type: 'exact' | 'partial' }
   const recSearch = { A: '', B: '' };
 
   function compare() {
@@ -497,6 +504,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       matched, nameDiff, onlyA, onlyB, dups, confirmed: []
     };
     sel.A = sel.B = null;
+    pending = [];
     currentView = 'all';
     tidy();
     render();
@@ -515,6 +523,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     r.nameDiff.sort((x, y) => x.sim - y.sim || byId(x, y));
     if (sel.A && !r.onlyA.some(x => x.uid === sel.A)) sel.A = null;
     if (sel.B && !r.onlyB.some(x => x.uid === sel.B)) sel.B = null;
+    pending = pending.filter(p => r.onlyA.some(x => x.uid === p.a) && r.onlyB.some(x => x.uid === p.b));
   }
 
   function take(list, uid) {
@@ -574,15 +583,30 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     render();
   }
 
-  function linkSelected(type) {
+  // Queue the current A/B selection as a pair waiting for approval
+  function queueSelection() {
     const r = result;
     const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
     if (!a || !b) return;
-    const label = type === 'exact' ? 'متطابق تماماً' : 'مطابقة جزئية (اختلاف في الاسم)';
-    if (!confirm('تأكيد الربط كـ «' + label + '»؟\n\n' + r.labelA + ': ' + a.name + ' (' + idText(a) + ')\n' + r.labelB + ': ' + b.name + ' (' + idText(b) + ')')) return;
-    take(r.onlyA, a.uid); take(r.onlyB, b.uid);
-    const pair = { id: a.id, a, b, manual: 'link', sim: similarity(normName(a.name), normName(b.name)) };
-    (type === 'exact' ? r.matched : r.nameDiff).push(pair);
+    const sim = similarity(normName(a.name), normName(b.name));
+    pending.push({ a: a.uid, b: b.uid, type: sim === 100 ? 'exact' : 'partial' });
+    sel.A = sel.B = null;
+  }
+
+  function approvePending() {
+    const r = result;
+    const rows = pending.map(p => ({ p, a: r.onlyA.find(x => x.uid === p.a), b: r.onlyB.find(x => x.uid === p.b) })).filter(x => x.a && x.b);
+    if (!rows.length) return;
+    const nEx = rows.filter(x => x.p.type === 'exact').length;
+    const preview = rows.slice(0, 15).map((x, i) => (i + 1) + ') ' + x.a.name + '  ⇄  ' + x.b.name + '  [' + (x.p.type === 'exact' ? 'تام' : 'جزئي') + ']').join('\n') +
+      (rows.length > 15 ? '\n… و ' + (rows.length - 15) + ' أخرى' : '');
+    if (!confirm('الموافقة على ربط ' + rows.length + ' زوج؟\n(متطابق تام: ' + nEx + ' — جزئي: ' + (rows.length - nEx) + ')\n\n' + preview)) return;
+    rows.forEach(({ p, a, b }) => {
+      take(r.onlyA, a.uid); take(r.onlyB, b.uid);
+      const pair = { id: a.id, a, b, manual: 'link', sim: similarity(normName(a.name), normName(b.name)) };
+      (p.type === 'exact' ? r.matched : r.nameDiff).push(pair);
+    });
+    pending = [];
     sel.A = sel.B = null;
     tidy();
     render();
@@ -741,7 +765,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     $('reports').innerHTML = '<div class="report no-print">' +
       '<h3>🔗 المطابقة اليدوية — الباقي بعد المتطابق التام والجزئي</h3>' +
       '<p class="sub">اختر اسماً من ' + esc(r.labelA) + ' واسماً من ' + esc(r.labelB) + ' ثم اربطهما كمطابق تام أو جزئي بعد التأكد. ' +
-      'عند اختيار اسم من جهة تُرتَّب القائمة الأخرى حسب نسبة التشابه (الأقرب أولاً). وإذا تأكدت أن الاسم غير موجود في الملف الآخر اضغط «غير موجود فعلاً».</p>' +
+      'عند اختيار اسم من جهة تُرتَّب القائمة الأخرى حسب نسبة التشابه (الأقرب أولاً). اختيار الاسم ثم المشابه له = زوج واحد يُضاف إلى «قائمة الربط»؛ ' +
+      'كرر لأكثر من اسم ثم اضغط «موافقة وربط الكل». وإذا تأكدت أن الاسم غير موجود في الملف الآخر اضغط «غير موجود فعلاً».</p>' +
       '<div class="rec-grid">' + col('A') + col('B') + '</div>' +
       '<div class="rec-bar" id="recBar"></div></div>';
     ['A', 'B'].forEach(k => {
@@ -757,11 +782,13 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       const list = r['only' + k];
       const selOther = sel[other] && r['only' + other].find(x => x.uid === sel[other]);
       const q = recSearch[k].trim(), qn = normName(q), qi = normId(q);
+      const queued = new Set(pending.map(p => p[k === 'A' ? 'a' : 'b']));
       let items = list
+        .filter(x => !queued.has(x.uid))
         .filter(x => !q || normName(x.name).includes(qn) || normId(x.rawId).includes(qi))
         .map(x => ({ x, sim: selOther ? similarity(normName(x.name), normName(selOther.name)) : null }));
       if (selOther) items.sort((p, q2) => q2.sim - p.sim);
-      $('recCnt' + k).textContent = list.length;
+      $('recCnt' + k).textContent = list.length - queued.size;
       $('recList' + k).innerHTML = items.length
         ? items.map(({ x, sim }) => '<div class="rec-item' + (sel[k] === x.uid ? ' sel' : '') + '" data-side="' + k + '" data-uid="' + x.uid + '">' +
             '<span class="rid">' + esc(idText(x)) + '</span><span class="rname">' + esc(x.name) + '</span>' +
@@ -770,6 +797,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       $('recList' + k).querySelectorAll('.rec-item').forEach(el => el.onclick = () => {
         const uid = +el.dataset.uid;
         sel[k] = sel[k] === uid ? null : uid;
+        if (sel.A && sel.B) queueSelection();   // name + its match = one pair in the queue
         renderRecLists();
       });
     });
@@ -780,17 +808,43 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const r = result;
     const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
     const show = (x, label) => esc(label) + ': ' + (x ? '<b>' + esc(x.name) + '</b> (' + esc(idText(x)) + ')' : '<span style="color:var(--muted)">لم يتم الاختيار</span>');
-    const sim = a && b ? similarity(normName(a.name), normName(b.name)) : null;
-    $('recBar').innerHTML = '<div class="pick">' + show(a, r.labelA) + '<br>' + show(b, r.labelB) +
-      (sim != null ? '<br>نسبة التشابه: <b>' + sim + '%</b>' : '') + '</div>' +
-      '<button class="btn-ok" id="linkExact"' + (a && b ? '' : ' disabled') + '>✔ ربط كمطابق تام</button>' +
-      '<button class="btn-warn" id="linkPartial"' + (a && b ? '' : ' disabled') + '>≈ ربط كمطابق جزئي</button>' +
+    const rows = pending.map(p => ({ p, a: r.onlyA.find(x => x.uid === p.a), b: r.onlyB.find(x => x.uid === p.b) }));
+
+    let html = '<div class="pick">' + (a || b
+      ? show(a, r.labelA) + '<br>' + show(b, r.labelB) + '<br><span style="color:var(--muted);font-size:12px">اختر الاسم المشابه من الجهة الأخرى ليُضاف إلى قائمة الربط</span>'
+      : '<span style="color:var(--muted)">اختر اسماً من أي جهة ثم اختر المشابه له من الجهة الأخرى — يُضاف الزوج إلى قائمة الربط. كرر لأكثر من اسم ثم اضغط «موافقة وربط».</span>') + '</div>' +
       '<button class="btn-bad" id="markMissing"' + (a || b ? '' : ' disabled') + '>✖ غير موجود فعلاً</button>' +
       '<button class="btn-light" id="clearSel"' + (a || b ? '' : ' disabled') + '>إلغاء التحديد</button>';
-    $('linkExact').onclick = () => linkSelected('exact');
-    $('linkPartial').onclick = () => linkSelected('partial');
+
+    if (rows.length) {
+      html += '<div style="flex-basis:100%"></div><div class="pending">' +
+        '<div class="pending-head"><b>قائمة الربط (' + rows.length + ')</b>' +
+        '<span><button class="btn-light btn-sm" id="allExact">الكل تام</button> <button class="btn-light btn-sm" id="allPartial">الكل جزئي</button></span></div>' +
+        '<div class="pending-list"><table><thead><tr><th>#</th><th>' + esc(r.labelA) + '</th><th>' + esc(r.labelB) + '</th><th>التشابه</th><th>نوع الربط</th><th></th></tr></thead><tbody>' +
+        rows.map(({ p, a, b }, i) => {
+          const sim = similarity(normName(a.name), normName(b.name));
+          return '<tr><td class="num">' + (i + 1) + '</td>' +
+            '<td>' + esc(a.name) + ' <span style="color:var(--muted)">(' + esc(idText(a)) + ')</span></td>' +
+            '<td>' + esc(b.name) + ' <span style="color:var(--muted)">(' + esc(idText(b)) + ')</span></td>' +
+            '<td><span class="tag ' + (sim >= 80 ? 's-ok' : sim >= 50 ? 's-warn' : 's-bad') + '">' + sim + '%</span></td>' +
+            '<td><select data-ptype="' + i + '"><option value="exact"' + (p.type === 'exact' ? ' selected' : '') + '>✔ تام</option>' +
+            '<option value="partial"' + (p.type === 'partial' ? ' selected' : '') + '>≈ جزئي</option></select></td>' +
+            '<td><button class="btn-light btn-sm" data-premove="' + i + '" title="إزالة من القائمة">✕</button></td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        '<div class="pending-actions"><button class="btn-ok" id="approveAll">✔ موافقة وربط الكل (' + rows.length + ')</button>' +
+        '<button class="btn-light" id="clearPending">إفراغ القائمة</button></div></div>';
+    }
+    $('recBar').innerHTML = html;
+
     $('markMissing').onclick = markSelectedMissing;
     $('clearSel').onclick = () => { sel.A = sel.B = null; renderRecLists(); };
+    if (!rows.length) return;
+    $('allExact').onclick = () => { pending.forEach(p => p.type = 'exact'); renderRecBar(); };
+    $('allPartial').onclick = () => { pending.forEach(p => p.type = 'partial'); renderRecBar(); };
+    $('approveAll').onclick = approvePending;
+    $('clearPending').onclick = () => { pending = []; renderRecLists(); };
+    $('recBar').querySelectorAll('[data-ptype]').forEach(el => el.onchange = () => { pending[+el.dataset.ptype].type = el.value; });
+    $('recBar').querySelectorAll('[data-premove]').forEach(el => el.onclick = () => { pending.splice(+el.dataset.premove, 1); renderRecLists(); });
   }
 
   // ---------- Print ----------
@@ -870,7 +924,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
           $('cols' + k).classList.remove('hidden');
           loadSheet(k);
         });
-        if (p.result) { result = p.result; sel.A = sel.B = null; currentView = 'all'; tidy(); render(); }
+        if (p.result) { result = p.result; sel.A = sel.B = null; pending = []; currentView = 'all'; tidy(); render(); }
       } catch (err) {
         alert('تعذر فتح ملف JSON: ' + err.message);
       }
