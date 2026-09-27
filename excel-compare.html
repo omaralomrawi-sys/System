@@ -197,6 +197,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     <label><input type="checkbox" id="optSpaces" checked> تجاهل المسافات الزائدة</label>
     <label><input type="checkbox" id="optCase" checked> تجاهل حالة الأحرف الإنجليزية</label>
     <label><input type="checkbox" id="optZeros"> تجاهل الأصفار في بداية الرقم الوظيفي</label>
+    <label><input type="checkbox" id="optNoIdName" checked> مطابقة الصفوف بدون رقم وظيفي (فارغ / NULL) بالاسم</label>
   </div>
 
   <div class="actions">
@@ -242,6 +243,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   const NAME_KEYS = ['اسم الموظف', 'الاسم', 'اسم', 'employee name', 'full name', 'name'];
 
   const $ = id => document.getElementById(id);
+  const EMPTY_IDS = new Set(['null', 'nil', 'none', 'nan', 'n/a', 'na', '#n/a', 'undefined', 'لايوجد', 'لا يوجد', 'بدون', 'بدونرقم', 'فارغ']);
 
   // ---------- Helpers ----------
   function esc(s) {
@@ -254,6 +256,8 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     s = s.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
     if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
     if ($('optZeros').checked) s = s.replace(/^0+(?=.)/, '');
+    // Placeholder values such as NULL / N/A / - / 0 mean "no employee ID"
+    if (EMPTY_IDS.has(s.toLowerCase()) || /^[-_.\/]+$/.test(s) || /^0+$/.test(s)) return '';
     return s;
   }
 
@@ -398,10 +402,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const list = [];
     for (let r = f.headerRow + 1; r < f.rows.length; r++) {
       const row = f.rows[r] || [];
-      const rawId = String(row[idIdx] ?? '').trim();
+      let rawId = String(row[idIdx] ?? '').trim();
       const name = String(row[nameIdx] ?? '').trim();
-      if (!rawId && !name) continue;
-      list.push({ id: normId(rawId), rawId, name, row: r + 1 });
+      const id = normId(rawId);
+      if (!id) rawId = '';
+      if (!id && !name) continue;
+      list.push({ id, rawId, name, row: r + 1 });
     }
     return list;
   }
@@ -429,26 +435,65 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 
     const matched = [], nameDiff = [], onlyA = [], onlyB = [], dups = [];
 
+    // Report real duplicate IDs (same ID on more than one row of the same file)
     gA.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelA, ...it, count: items.length })); });
     gB.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelB, ...it, count: items.length })); });
-    gA.noId.forEach(it => dups.push({ file: labelA, ...it, count: 0 }));
-    gB.noId.forEach(it => dups.push({ file: labelB, ...it, count: 0 }));
 
+    // 1) Match by employee ID. When an ID repeats, pair each row with the closest name on the other side;
+    //    rows left over stay in the remaining lists instead of being dropped.
+    const pairUp = (itemsA, itemsB, id) => {
+      // Try every A×B combination and take the most similar pairs first
+      const cands = [];
+      itemsA.forEach(a => itemsB.forEach(b => cands.push({ a, b, sim: similarity(normName(a.name), normName(b.name)) })));
+      cands.sort((x, y) => y.sim - x.sim);
+      const usedA = new Set(), usedB = new Set();
+      cands.forEach(({ a, b, sim }) => {
+        if (usedA.has(a) || usedB.has(b)) return;
+        usedA.add(a); usedB.add(b);
+        if (normName(a.name) === normName(b.name)) matched.push({ id, a, b });
+        else nameDiff.push({ id, a, b, sim });
+      });
+      itemsA.forEach(a => { if (!usedA.has(a)) onlyA.push(a); });
+      itemsB.forEach(b => { if (!usedB.has(b)) onlyB.push(b); });
+    };
     gA.map.forEach((itemsA, id) => {
-      const a = itemsA[0];
       const itemsB = gB.map.get(id);
-      if (!itemsB) { onlyA.push(a); return; }
-      const b = itemsB[0];
-      const na = normName(a.name), nb = normName(b.name);
-      if (na === nb) matched.push({ id, a, b });
-      else nameDiff.push({ id, a, b, sim: similarity(na, nb) });
+      if (itemsB) pairUp(itemsA, itemsB, id);
+      else itemsA.forEach(a => onlyA.push(a));
     });
-    gB.map.forEach((itemsB, id) => { if (!gA.map.has(id)) onlyB.push(itemsB[0]); });
+    gB.map.forEach((itemsB, id) => { if (!gA.map.has(id)) itemsB.forEach(b => onlyB.push(b)); });
+
+    // 2) Rows without an employee ID (empty, NULL, ...): match by identical name when the name is unique on both sides
+    let byName = 0;
+    if ($('optNoIdName').checked && (gA.noId.length || gB.noId.length)) {
+      const index = list => {
+        const m = new Map();
+        list.forEach(x => { const k = normName(x.name); if (k) { if (!m.has(k)) m.set(k, []); m.get(k).push(x); } });
+        return m;
+      };
+      const poolA = onlyA.concat(gA.noId), poolB = onlyB.concat(gB.noId);
+      const mA = index(poolA), mB = index(poolB);
+      const used = new Set();
+      mA.forEach((xs, k) => {
+        const ys = mB.get(k);
+        if (!ys || xs.length !== 1 || ys.length !== 1) return;
+        const a = xs[0], b = ys[0];
+        if (a.id && b.id) return;              // both have (different) IDs → leave for manual review
+        matched.push({ id: a.id || b.id, a, b, manual: 'name' });
+        used.add(a); used.add(b); byName++;
+      });
+      onlyA.length = 0; poolA.forEach(x => { if (!used.has(x)) onlyA.push(x); });
+      onlyB.length = 0; poolB.forEach(x => { if (!used.has(x)) onlyB.push(x); });
+    } else {
+      gA.noId.forEach(x => onlyA.push(x));
+      gB.noId.forEach(x => onlyB.push(x));
+    }
 
     result = {
       labelA, labelB, date: new Date().toLocaleString('ar'),
       fileA: files.A.fileName, fileB: files.B.fileName,
       totalA: listA.length, totalB: listB.length,
+      noIdA: gA.noId.length, noIdB: gB.noId.length, byName,
       matched, nameDiff, onlyA, onlyB, dups, confirmed: []
     };
     sel.A = sel.B = null;
@@ -477,8 +522,10 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     return i < 0 ? null : list.splice(i, 1)[0];
   }
 
-  const pairId = p => p.a.id === p.b.id ? p.a.rawId : p.a.rawId + ' ↔ ' + p.b.rawId;
-  const methodText = p => p.manual === 'link' ? 'ربط يدوي' : p.manual === 'verified' ? 'نُقل بعد التحقق' : 'تلقائي';
+  const NO_ID = 'بدون رقم';
+  const idText = x => x.rawId || NO_ID;
+  const pairId = p => p.a.id === p.b.id ? idText(p.a) : idText(p.a) + ' ↔ ' + idText(p.b);
+  const methodText = p => p.manual === 'link' ? 'ربط يدوي' : p.manual === 'verified' ? 'نُقل بعد التحقق' : p.manual === 'name' ? 'مطابقة بالاسم (بدون رقم)' : 'تلقائي';
   const methodTag = p => p.manual ? '<span class="tag tag-manual">' + methodText(p) + '</span>' : '';
 
   // ---------- Moving records between reports ----------
@@ -489,7 +536,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     switch (act) {
       case 'toExact':
         p = find(r.nameDiff);
-        if (!p || !confirm('نقل إلى «متطابق تماماً» بعد التأكد؟\n\n' + A + ': ' + p.a.name + ' (' + p.a.rawId + ')\n' + B + ': ' + p.b.name + ' (' + p.b.rawId + ')')) return;
+        if (!p || !confirm('نقل إلى «متطابق تماماً» بعد التأكد؟\n\n' + A + ': ' + p.a.name + ' (' + idText(p.a) + ')\n' + B + ': ' + p.b.name + ' (' + idText(p.b) + ')')) return;
         take(r.nameDiff, uid); p.manual = p.manual || 'verified'; r.matched.push(p);
         break;
       case 'toPartial':
@@ -512,7 +559,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         const side = act.slice(-1), list = side === 'A' ? r.onlyA : r.onlyB;
         it = find(list);
         const other = side === 'A' ? B : A;
-        if (!it || !confirm('تأكيد أن «' + it.name + '» (' + it.rawId + ') غير موجود فعلاً في ' + other + '؟')) return;
+        if (!it || !confirm('تأكيد أن «' + it.name + '» (' + idText(it) + ') غير موجود فعلاً في ' + other + '؟')) return;
         take(list, uid); it.side = side; r.confirmed.push(it);
         break;
       }
@@ -532,7 +579,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
     if (!a || !b) return;
     const label = type === 'exact' ? 'متطابق تماماً' : 'مطابقة جزئية (اختلاف في الاسم)';
-    if (!confirm('تأكيد الربط كـ «' + label + '»؟\n\n' + r.labelA + ': ' + a.name + ' (' + a.rawId + ')\n' + r.labelB + ': ' + b.name + ' (' + b.rawId + ')')) return;
+    if (!confirm('تأكيد الربط كـ «' + label + '»؟\n\n' + r.labelA + ': ' + a.name + ' (' + idText(a) + ')\n' + r.labelB + ': ' + b.name + ' (' + idText(b) + ')')) return;
     take(r.onlyA, a.uid); take(r.onlyB, b.uid);
     const pair = { id: a.id, a, b, manual: 'link', sim: similarity(normName(a.name), normName(b.name)) };
     (type === 'exact' ? r.matched : r.nameDiff).push(pair);
@@ -546,7 +593,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
     const picked = [a && [a, 'A', r.labelB], b && [b, 'B', r.labelA]].filter(Boolean);
     if (!picked.length) return;
-    const msg = picked.map(([x, , other]) => '• ' + x.name + ' (' + x.rawId + ') غير موجود في ' + other).join('\n');
+    const msg = picked.map(([x, , other]) => '• ' + x.name + ' (' + idText(x) + ') غير موجود في ' + other).join('\n');
     if (!confirm('تأكيد عدم الوجود:\n\n' + msg)) return;
     picked.forEach(([x, side]) => { take(side === 'A' ? r.onlyA : r.onlyB, x.uid); x.side = side; r.confirmed.push(x); });
     sel.A = sel.B = null;
@@ -583,32 +630,32 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         key: 'onlyA', cls: 's-bad', title: 'موجود في ' + A + ' فقط', desc: 'غير موجود في ' + B + ' — استخدم «مطابقة يدوية» لربطه باسم من ' + B,
         items: r.onlyA,
         cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
-        cells: x => [esc(x.rawId), esc(x.name), x.row],
-        plain: x => [x.rawId, x.name, x.row],
+        cells: x => [esc(idText(x)), esc(x.name), x.row],
+        plain: x => [idText(x), x.name, x.row],
         actions: x => btn('matchA', x.uid, 'b-link', '🔗 مطابقة يدوية') + btn('missA', x.uid, 'b-bad', '✖ غير موجود فعلاً')
       },
       {
         key: 'onlyB', cls: 's-bad', title: 'موجود في ' + B + ' فقط', desc: 'غير موجود في ' + A + ' — استخدم «مطابقة يدوية» لربطه باسم من ' + A,
         items: r.onlyB,
         cols: ['الرقم الوظيفي', 'الاسم', 'رقم الصف'],
-        cells: x => [esc(x.rawId), esc(x.name), x.row],
-        plain: x => [x.rawId, x.name, x.row],
+        cells: x => [esc(idText(x)), esc(x.name), x.row],
+        plain: x => [idText(x), x.name, x.row],
         actions: x => btn('matchB', x.uid, 'b-link', '🔗 مطابقة يدوية') + btn('missB', x.uid, 'b-bad', '✖ غير موجود فعلاً')
       },
       {
         key: 'confirmed', cls: 's-conf', title: 'مؤكد غير موجود', desc: 'أسماء تم التأكد أنها غير موجودة في الملف الآخر',
         items: r.confirmed,
         cols: ['موجود في', 'غير موجود في', 'الرقم الوظيفي', 'الاسم', 'رقم الصف'],
-        cells: x => [esc(x.side === 'A' ? A : B), esc(x.side === 'A' ? B : A), esc(x.rawId), esc(x.name), x.row],
-        plain: x => [x.side === 'A' ? A : B, x.side === 'A' ? B : A, x.rawId, x.name, x.row],
+        cells: x => [esc(x.side === 'A' ? A : B), esc(x.side === 'A' ? B : A), esc(idText(x)), esc(x.name), x.row],
+        plain: x => [x.side === 'A' ? A : B, x.side === 'A' ? B : A, idText(x), x.name, x.row],
         actions: x => btn('restore', x.uid, 'b-link', '↩ إرجاع للباقي')
       },
       {
-        key: 'dups', cls: 's-info', title: 'مكرر / بدون رقم', desc: 'أرقام وظيفية مكررة داخل نفس الملف أو صفوف بدون رقم وظيفي (تُقارن أول نسخة فقط)',
+        key: 'dups', cls: 's-info', title: 'أرقام مكررة', desc: 'نفس الرقم الوظيفي مكرر في أكثر من صف داخل نفس الملف (للعلم فقط — كل الصفوف تدخل المقارنة، ويُربط كل صف بأقرب اسم في الملف الآخر)',
         items: r.dups,
         cols: ['الملف', 'الرقم الوظيفي', 'الاسم', 'رقم الصف', 'الملاحظة'],
-        cells: x => [esc(x.file), esc(x.rawId), esc(x.name), x.row, x.count ? 'مكرر ' + x.count + ' مرات' : 'بدون رقم وظيفي'],
-        plain: x => [x.file, x.rawId, x.name, x.row, x.count ? 'مكرر ' + x.count + ' مرات' : 'بدون رقم وظيفي']
+        cells: x => [esc(x.file), esc(x.rawId), esc(x.name), x.row, 'مكرر ' + x.count + ' مرات'],
+        plain: x => [x.file, x.rawId, x.name, x.row, 'مكرر ' + x.count + ' مرات']
       }
     ];
   }
@@ -637,13 +684,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     // Progress towards a complete reconciliation
     const handled = (r.matched.length + r.nameDiff.length) * 2 + r.confirmed.length;
     const pct = handled + remaining ? Math.round(handled / (handled + remaining) * 100) : 100;
-    $('progress').innerHTML = remaining
+    const noIdNote = (r.noIdA || r.noIdB)
+      ? '<div style="font-size:13px;color:var(--muted);margin-top:6px">صفوف بدون رقم وظيفي (فارغ / NULL): ' +
+        (r.noIdA ? esc(r.labelA) + ' <b>' + r.noIdA + '</b> ' : '') + (r.noIdB ? esc(r.labelB) + ' <b>' + r.noIdB + '</b> ' : '') +
+        '— طوبق منها بالاسم تلقائياً: <b>' + (r.byName || 0) + '</b>، والباقي في قائمة المطابقة اليدوية</div>'
+      : '';
+    $('progress').innerHTML = (remaining
       ? 'نسبة الإنجاز: <b>' + pct + '%</b> — الباقي بدون مطابقة: ' + esc(r.labelA) + ' <b>' + r.onlyA.length + '</b> ، ' + esc(r.labelB) + ' <b>' + r.onlyB.length + '</b>' +
         (r.nameDiff.length ? ' — مطابقة جزئية بانتظار التحقق: <b>' + r.nameDiff.length + '</b>' : '') +
         '<div class="bar"><div style="width:' + pct + '%"></div></div>'
       : '<span class="done">✅ اكتملت المقارنة — لا يوجد أي اسم باقٍ بدون مطابقة</span>' +
         (r.nameDiff.length ? ' (مطابقة جزئية بانتظار التحقق: <b>' + r.nameDiff.length + '</b>)' : '') +
-        '<div class="bar"><div style="width:100%"></div></div>';
+        '<div class="bar"><div style="width:100%"></div></div>') + noIdNote;
 
     renderReports();
   }
@@ -712,7 +764,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
       $('recCnt' + k).textContent = list.length;
       $('recList' + k).innerHTML = items.length
         ? items.map(({ x, sim }) => '<div class="rec-item' + (sel[k] === x.uid ? ' sel' : '') + '" data-side="' + k + '" data-uid="' + x.uid + '">' +
-            '<span class="rid">' + esc(x.rawId) + '</span><span class="rname">' + esc(x.name) + '</span>' +
+            '<span class="rid">' + esc(idText(x)) + '</span><span class="rname">' + esc(x.name) + '</span>' +
             (sim != null ? '<span class="tag rsim ' + (sim >= 80 ? 's-ok' : sim >= 50 ? 's-warn' : 's-bad') + '">' + sim + '%</span>' : '') + '</div>').join('')
         : '<div class="empty">' + (list.length ? 'لا توجد نتائج للبحث' : '✅ لا يوجد باقي') + '</div>';
       $('recList' + k).querySelectorAll('.rec-item').forEach(el => el.onclick = () => {
@@ -727,7 +779,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   function renderRecBar() {
     const r = result;
     const a = r.onlyA.find(x => x.uid === sel.A), b = r.onlyB.find(x => x.uid === sel.B);
-    const show = (x, label) => esc(label) + ': ' + (x ? '<b>' + esc(x.name) + '</b> (' + esc(x.rawId) + ')' : '<span style="color:var(--muted)">لم يتم الاختيار</span>');
+    const show = (x, label) => esc(label) + ': ' + (x ? '<b>' + esc(x.name) + '</b> (' + esc(idText(x)) + ')' : '<span style="color:var(--muted)">لم يتم الاختيار</span>');
     const sim = a && b ? similarity(normName(a.name), normName(b.name)) : null;
     $('recBar').innerHTML = '<div class="pick">' + show(a, r.labelA) + '<br>' + show(b, r.labelB) +
       (sim != null ? '<br>نسبة التشابه: <b>' + sim + '%</b>' : '') + '</div>' +
@@ -781,7 +833,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const payload = {
       app: 'excel-compare', version: 1,
       labelA: $('nameA').value, labelB: $('nameB').value,
-      options: { arabic: $('optArabic').checked, spaces: $('optSpaces').checked, caseI: $('optCase').checked, zeros: $('optZeros').checked },
+      options: { arabic: $('optArabic').checked, spaces: $('optSpaces').checked, caseI: $('optCase').checked, zeros: $('optZeros').checked, noIdName: $('optNoIdName').checked },
       fileA: files.A.rows.length ? { fileName: files.A.fileName, data: extract('A') } : null,
       fileB: files.B.rows.length ? { fileName: files.B.fileName, data: extract('B') } : null,
       result
@@ -803,7 +855,7 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         $('nameA').value = p.labelA || ''; $('nameB').value = p.labelB || '';
         if (p.options) {
           $('optArabic').checked = !!p.options.arabic; $('optSpaces').checked = !!p.options.spaces;
-          $('optCase').checked = !!p.options.caseI; $('optZeros').checked = !!p.options.zeros;
+          $('optCase').checked = !!p.options.caseI; $('optZeros').checked = !!p.options.zeros; $('optNoIdName').checked = p.options.noIdName !== false;
         }
         // Rebuild in-memory sheets from saved ID/name data so comparison can be re-run
         ['A', 'B'].forEach(k => {
