@@ -443,8 +443,18 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
     const matched = [], nameDiff = [], onlyA = [], onlyB = [], dups = [];
 
     // Report real duplicate IDs (same ID on more than one row of the same file)
-    gA.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelA, ...it, count: items.length })); });
-    gB.map.forEach(items => { if (items.length > 1) items.forEach(it => dups.push({ file: labelB, ...it, count: items.length })); });
+    // Same person entered twice (names contain each other / very similar) vs. one ID shared by different people
+    const samePerson = items => items.every(x => items.every(y => {
+      const a = normName(x.name), b = normName(y.name);
+      return a === b || a.startsWith(b) || b.startsWith(a) || similarity(a, b) >= 80;
+    }));
+    const addDups = (map, file) => map.forEach(items => {
+      if (items.length < 2) return;
+      const same = samePerson(items);
+      items.forEach(it => dups.push({ file, ...it, count: items.length, same }));
+    });
+    addDups(gA.map, labelA);
+    addDups(gB.map, labelB);
 
     // 1) Match by employee ID. When an ID repeats, pair each row with the closest name on the other side;
     //    rows left over stay in the remaining lists instead of being dropped.
@@ -626,6 +636,11 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
   }
 
   // ---------- Report definitions ----------
+  function dupNote(x) {
+    if (x.same === false) return (x.count === 2 ? 'رقم واحد لشخصين مختلفين' : 'رقم واحد لـ ' + x.count + ' أشخاص مختلفين') + ' — تحقق من صحة الرقم';
+    return 'نفس الشخص مُدخل ' + (x.count === 2 ? 'مرتين' : x.count + ' مرات') + ' بنفس الرقم';
+  }
+
   function btn(act, uid, cls, text) {
     return '<button class="' + cls + '" data-act="' + act + '" data-uid="' + uid + '">' + text + '</button>';
   }
@@ -675,11 +690,12 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
         actions: x => btn('restore', x.uid, 'b-link', '↩ إرجاع للباقي')
       },
       {
-        key: 'dups', cls: 's-info', title: 'أرقام مكررة', desc: 'نفس الرقم الوظيفي مكرر في أكثر من صف داخل نفس الملف (للعلم فقط — كل الصفوف تدخل المقارنة، ويُربط كل صف بأقرب اسم في الملف الآخر)',
+        key: 'dups', cls: 's-info', title: 'أرقام مكررة', desc: 'نفس الرقم الوظيفي موجود في أكثر من صف داخل نفس الملف: إما نفس الشخص مُدخل أكثر من مرة، أو رقم واحد مسجل لأشخاص مختلفين (خطأ في الرقم). كل الصفوف تدخل المقارنة ويُربط كل صف بأقرب اسم في الملف الآخر',
         items: r.dups,
         cols: ['الملف', 'الرقم الوظيفي', 'الاسم', 'رقم الصف', 'الملاحظة'],
-        cells: x => [esc(x.file), esc(x.rawId), esc(x.name), x.row, 'مكرر ' + x.count + ' مرات'],
-        plain: x => [x.file, x.rawId, x.name, x.row, 'مكرر ' + x.count + ' مرات']
+        cells: x => [esc(x.file), esc(x.rawId), esc(x.name), x.row,
+          '<span class="tag ' + (x.same ? 's-warn' : 's-bad') + '">' + dupNote(x) + '</span>'],
+        plain: x => [x.file, x.rawId, x.name, x.row, dupNote(x)]
       }
     ];
   }
