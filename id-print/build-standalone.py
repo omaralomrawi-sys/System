@@ -8,3 +8,6 @@ s = s.replace('<script src="lib/pdf.min.js"></script>', '<script>\n' + lib('pdf.
 s = s.replace('<script type="text/plain" id="pdfworker"></script>', '<script type="text/plain" id="pdfworker">\n' + lib('pdf.worker.min.js') + '\n</script>')
 open('id-print.html', 'w', encoding='utf-8').write(s)
 print('ok', len(s))
+
+os.makedirs('desktop/app', exist_ok=True)
+open('desktop/app/index.html', 'w', encoding='utf-8').write(s)

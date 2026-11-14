@@ -13,3 +13,8 @@
 - عند الطباعة اختر: Margins = None و Scale = 100%.
 
 التطوير: عدّل `index.html` ثم شغّل `python3 build-standalone.py` لتحديث `id-print.html`.
+
+## نسخة سطح المكتب (Windows .exe) – وصول كامل لملفات الحاسبة
+مجلد `id-print/desktop` يغلّف التطبيق بـ Electron فيفتح سطح المكتب والمستندات والتنزيلات والأقراص مباشرة بدون أي إذن.
+- **ملف exe جاهز:** GitHub → تبويب Actions → «Build ID Print (Windows exe)» → افتح آخر تشغيل → Artifacts → `ID-Print-windows` (يُبنى تلقائياً عند أي تعديل في `id-print/`).
+- **أو محلياً (يتطلب Node.js):** شغّل `id-print/desktop/start-windows.bat`.

@@ -370,7 +370,7 @@ ar:{title:'طباعة المستمسكات',exportPdf:'تصدير PDF',print:'ط
  confirmDelPage:'حذف هذه الصفحة؟',confirmClear:'تفريغ كل إطارات الصفحة؟',backOf:'ظهر: ',
  pc_id:'بطاقة وطنية',pc_res:'بطاقة السكن',pc_pass:'جواز السفر',
  p_a4:'ورقة A4 كاملة',p_a5:'A5',p_a6:'A6',p_ph:'صورة شخصية 3.5×4.5',p_p46:'صورة 10×15 سم',
- stat:'للطباعة',statEmpty:'فارغ (لا يُطبع)',frames:'إطار',tTheme:'الوضع الداكن / الفاتح'},
+ pl_desktop:'سطح المكتب',pl_documents:'المستندات',pl_downloads:'التنزيلات',pl_pictures:'الصور',pl_home:'المجلد الشخصي',stat:'للطباعة',statEmpty:'فارغ (لا يُطبع)',frames:'إطار',tTheme:'الوضع الداكن / الفاتح'},
 en:{title:'ID Print',exportPdf:'Export PDF',print:'Print',undo:'Undo (Ctrl+Z)',redo:'Redo (Ctrl+Y)',
  tabFiles:'Files',tabTpl:'Templates',tabPage:'Page',tabLay:'Layout',
  added:'Added documents',trayHint:'Drag any image onto a frame. Double-click a thumbnail to put it in the first empty frame.',
@@ -404,7 +404,7 @@ en:{title:'ID Print',exportPdf:'Export PDF',print:'Print',undo:'Undo (Ctrl+Z)',r
  confirmDelPage:'Delete this page?',confirmClear:'Remove all frames on this page?',backOf:'Back: ',
  pc_id:'National ID',pc_res:'Residence card',pc_pass:'Passport',
  p_a4:'Full A4 sheet',p_a5:'A5',p_a6:'A6',p_ph:'Passport photo 3.5×4.5',p_p46:'Photo 10×15 cm',
- stat:'To print',statEmpty:'empty (not printed)',frames:'frames',tTheme:'Dark / light'}
+ pl_desktop:'Desktop',pl_documents:'Documents',pl_downloads:'Downloads',pl_pictures:'Pictures',pl_home:'Home',stat:'To print',statEmpty:'empty (not printed)',frames:'frames',tTheme:'Dark / light'}
 };
 let lang = LS.get('idp.lang','ar');
 const t = k => (TR[lang][k] ?? TR.ar[k] ?? k);
@@ -911,14 +911,18 @@ const idb={db:null,open(){return this.db?Promise.resolve(this.db):new Promise((r
   async get(k){try{const db=await this.open();return await new Promise(res=>{const q=db.transaction('kv').objectStore('kv').get(k);q.onsuccess=()=>res(q.result);q.onerror=()=>res(null);});}catch(e){return null;}},
   async set(k,v){try{const db=await this.open();db.transaction('kv','readwrite').objectStore('kv').put(v,k);}catch(e){}}};
 const FSA=!!window.showDirectoryPicker;
+const DESK=!!window.fsApi;
+const mimeOf=n=>/\.pdf$/i.test(n)?'application/pdf':'image/'+(n.split('.').pop().toLowerCase().replace('jpg','jpeg'));
 function renderIntro(){
+  const placeName=p=>p.key?t('pl_'+p.key):p.name;
   const chip=(a,k)=>`<button class="chip" data-fb="${a}">${esc(t(k))}</button>`;
-  $('#fbintro').innerHTML=`<div class="empty-state" style="${FB.root?'display:none':''}">${ic('folder',34)}<b>${esc(t('fbTitle'))}</b><div style="margin-bottom:12px">${esc(t('fbDesc'))}</div>
+  $('#fbintro').innerHTML=`<div class="empty-state" style="${(FB.root||DESK)?'display:none':''}">${ic('folder',34)}<b>${esc(t('fbTitle'))}</b><div style="margin-bottom:12px">${esc(t('fbDesc'))}</div>
    <button class="pri" data-fb="open" style="margin:0 auto">${ic('folder')}${esc(t('fbOpen'))}</button></div>
-   <div class="chips">${FB.root?chip('open','fbOpen'):''}${FSA?chip('desktop','fbDesktop')+chip('downloads','fbDownloads')+chip('documents','fbDocs')+chip('pictures','fbPics'):''}${FB.lastHandle?`<button class="chip" data-fb="last">${ic('refresh',13)} ${esc(t('fbLast'))}: ${esc(FB.lastHandle.name)}</button>`:''}${chip('files','fbFiles')}</div>
+   <div class="chips">${DESK?(FB.places||[]).map((p,i)=>`<button class="chip" data-place="${i}">${ic(p.drive?'layout':'folder',13)} ${esc(placeName(p))}</button>`).join(''):''}${DESK?'':(FB.root?chip('open','fbOpen'):'')}${(FSA&&!DESK)?chip('desktop','fbDesktop')+chip('downloads','fbDownloads')+chip('documents','fbDocs')+chip('pictures','fbPics'):''}${(FB.lastHandle&&!DESK)?`<button class="chip" data-fb="last">${ic('refresh',13)} ${esc(t('fbLast'))}: ${esc(FB.lastHandle.name)}</button>`:''}${chip('files','fbFiles')}</div>
    ${FSA?'':`<p class="hint">${esc(t('fbNoSupport'))}</p>`}`;
 }
 $('#fbintro').addEventListener('click',async ev=>{
+  const pb=ev.target.closest('button[data-place]');if(pb)return fbOpenNode(FB.places[+pb.dataset.place].path);
   const b=ev.target.closest('button[data-fb]');if(!b)return;const a=b.dataset.fb;
   if(a==='open')return fbPick();
   if(a==='files')return $('#file').click();
@@ -930,6 +934,7 @@ async function fbPick(startIn){
   try{const o={mode:'read'};if(startIn)o.startIn=startIn;else o.id='idprint';const h=await window.showDirectoryPicker(o);idb.set('last',h);FB.lastHandle=h;await fbOpenHandle(h);}
   catch(e){if(e&&e.name!=='AbortError'){console.warn(e);toast(t('fbErr'));}}
 }
+async function fbOpenNode(p){const ch=await window.fsApi.chain(p);FB.stack=ch.map(c=>({kind:'node',path:c.path,name:c.name}));FB.root=FB.stack[0];FB.sel.clear();FB.q='';$('#fbq').value='';await fbLoad();}
 async function fbOpenHandle(h){FB.root={kind:'fs',handle:h,name:h.name};FB.stack=[FB.root];FB.sel.clear();FB.q='';$('#fbq').value='';await fbLoad();}
 $('#dirfb').onchange=e=>{
   const files=[...e.target.files];e.target.value='';if(!files.length)return;
@@ -940,7 +945,10 @@ $('#dirfb').onchange=e=>{
 const collator=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
 async function fbList(node){
   const dirs=[],files=[];
-  if(node.kind==='fs'){for await(const[name,h]of node.handle.entries()){if(name.startsWith('.'))continue;
+  if(node.kind==='node'){const r=await window.fsApi.list(node.path);
+    r.dirs.forEach(d=>dirs.push({name:d.name,node:{kind:'node',path:d.path,name:d.name}}));
+    r.files.forEach(f=>files.push({name:f.name,getFile:async()=>new File([await window.fsApi.read(f.path)],f.name,{type:mimeOf(f.name)})}));}
+  else if(node.kind==='fs'){for await(const[name,h]of node.handle.entries()){if(name.startsWith('.'))continue;
     if(h.kind==='directory')dirs.push({name,node:{kind:'fs',handle:h,name}});else if(FILE_RE.test(name))files.push({name,getFile:()=>h.getFile()});}}
   else{node.dirs.forEach((n,name)=>dirs.push({name,node:n}));node.files.forEach(f=>{if(FILE_RE.test(f.name))files.push({name:f.name,getFile:async()=>f});});}
   dirs.sort((a,b)=>collator.compare(a.name,b.name));files.sort((a,b)=>collator.compare(a.name,b.name));return{dirs,files};
@@ -953,7 +961,8 @@ async function fbLoad(){
 function renderFB(){
   if(!FB.root)return;
   const cr=$('#crumbs');cr.innerHTML='';
-  FB.stack.forEach((n,i)=>{const last=i===FB.stack.length-1,s=document.createElement(last?'span':'a');s.className=last?'cur':'';s.textContent=n.name;if(!last)s.onclick=()=>{FB.stack=FB.stack.slice(0,i+1);fbLoad();};cr.appendChild(s);if(!last)cr.appendChild(document.createTextNode(' › '));});
+  const skip=Math.max(0,FB.stack.length-4);if(skip){const e=document.createElement('a');e.textContent='…';e.onclick=()=>{FB.stack=FB.stack.slice(0,skip);fbLoad();};cr.appendChild(e);cr.appendChild(document.createTextNode(' › '));}
+  FB.stack.forEach((n,i)=>{if(i<skip)return;const last=i===FB.stack.length-1,s=document.createElement(last?'span':'a');s.className=last?'cur':'';s.textContent=n.name;if(!last)s.onclick=()=>{FB.stack=FB.stack.slice(0,i+1);fbLoad();};cr.appendChild(s);if(!last)cr.appendChild(document.createTextNode(' › '));});
   const q=FB.q.toLowerCase(),g=$('#fbgrid');g.innerHTML='';
   const dirs=FB.items.dirs.filter(d=>d.name.toLowerCase().includes(q)),files=FB.items.files.filter(f=>f.name.toLowerCase().includes(q));
   dirs.forEach((d,i)=>{const e=document.createElement('div');e.className='tile dir';e.dataset.dir=i;e.innerHTML=`<div class="im">${ic('folder',34)}</div><div class="nm" title="${esc(d.name)}">${esc(d.name)}</div>`;g.appendChild(e);});
@@ -1051,6 +1060,7 @@ paintIcons();applyTheme();applyLang();
 try{setupPdfWorker();}catch(e){console.warn(e);}
 loadInitial();
 renderPresets();renderLays();renderTray();renderIntro();showTab('files');syncPageControls();renderAll();
+if(DESK){window.fsApi.places().then(p=>{FB.places=p;renderIntro();const d=p.find(x=>x.key==='desktop')||p[0];if(d)fbOpenNode(d.path);});}
 idb.get('last').then(h=>{if(h&&h.kind==='directory'){FB.lastHandle=h;renderIntro();}});
 </script>
 </body>
